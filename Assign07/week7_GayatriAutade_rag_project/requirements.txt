@@ -1,0 +1,13 @@
+pypdf==4.3.1
+sentence-transformers==3.0.1
+faiss-cpu==1.8.0.post1
+numpy==1.26.4
+streamlit==1.37.1
+python-dotenv==1.0.1
+
+# Optional, only needed if you use that generation backend:
+anthropic==0.34.2      # for BACKEND=anthropic
+openai==1.42.0         # for BACKEND=openai
+cohere==5.8.1          # for BACKEND=cohere
+transformers==4.44.2   # for BACKEND=local
+torch==2.4.0           # for BACKEND=local
