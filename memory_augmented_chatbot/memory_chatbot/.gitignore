@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+.env
+*.db
+.streamlit/
+
+# Rebuild these with `python -m scripts.build_knowledge_base` --
+# keeping a pre-built copy in the repo so the project runs immediately
+# out of the box, but they're safe to delete and regenerate.
+# artifacts/

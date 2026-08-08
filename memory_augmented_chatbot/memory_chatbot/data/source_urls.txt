@@ -1,0 +1,14 @@
+# Add one URL per line to scrape as your default knowledge source.
+# Lines beginning with # are ignored.
+# Example:
+# https://example.com/article1
+# https://example.com/article2
+https://en.wikipedia.org/wiki/Retrieval-augmented_generation
+https://en.wikipedia.org/wiki/Knowledge_graph
+https://en.wikipedia.org/wiki/Large_language_model
+https://en.wikipedia.org/wiki/Vector_database
+https://en.wikipedia.org/wiki/Neo4j
+https://en.wikipedia.org/wiki/LangChain
+https://en.wikipedia.org/wiki/Chatbot
+https://en.wikipedia.org/wiki/Named-entity_recognition
+https://en.wikipedia.org/wiki/OpenAI

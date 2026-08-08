@@ -1,0 +1,11 @@
+Title: Cloud Computing
+
+Cloud Computing is the delivery of computing services, including servers, storage, databases, and software, over the Internet. Cloud Computing eliminates the need for organizations to own and maintain physical data centers.
+
+Amazon Web Services, commonly known as AWS, is the largest Cloud Computing provider and was launched by Amazon in 2006. Microsoft Azure is the second largest Cloud Computing platform, launched by Microsoft in 2010. Google Cloud Platform, known as GCP, is developed and operated by Google.
+
+Cloud Computing services are typically categorized into three models: Infrastructure as a Service (IaaS), Platform as a Service (PaaS), and Software as a Service (SaaS). IaaS provides virtualized computing resources, PaaS provides a platform for developing applications, and SaaS delivers software applications over the Internet.
+
+Containerization technology, popularized by Docker, allows applications to run consistently across different Cloud Computing environments. Kubernetes, originally developed by Google, is the most widely used container orchestration platform.
+
+Cloud Computing enables scalable Machine Learning workloads. AWS SageMaker, Azure Machine Learning, and Google Vertex AI are managed platforms that allow developers to train and deploy Machine Learning models in the cloud.

@@ -1,0 +1,11 @@
+Title: Machine Learning
+
+Machine Learning is a subfield of Artificial Intelligence that enables systems to learn patterns from data without being explicitly programmed. Machine Learning was popularized by researchers such as Arthur Samuel, who coined the term in 1959 at IBM.
+
+Machine Learning includes three major paradigms: Supervised Learning, Unsupervised Learning, and Reinforcement Learning. Supervised Learning uses labeled data to train models such as Linear Regression and Decision Trees. Unsupervised Learning discovers hidden structure in unlabeled data using algorithms such as K-Means Clustering. Reinforcement Learning trains agents through reward signals, and is used heavily by DeepMind in projects such as AlphaGo.
+
+Deep Learning is a subset of Machine Learning that uses Neural Networks with many layers. Deep Learning was significantly advanced by Geoffrey Hinton, Yann LeCun, and Yoshua Bengio, who are often called the Godfathers of Deep Learning. Deep Learning powers modern systems such as ChatGPT, developed by OpenAI, and Gemini, developed by Google.
+
+Python is the most widely used programming language for Machine Learning. Python was created by Guido van Rossum. Popular Machine Learning frameworks built on Python include TensorFlow, developed by Google, and PyTorch, developed by Meta. Scikit-learn is a lightweight library commonly used for classical Machine Learning algorithms.
+
+Machine Learning is applied across industries including healthcare, finance, and autonomous vehicles. Tesla uses Machine Learning for its self-driving car systems. Machine Learning models are typically evaluated using metrics such as accuracy, precision, recall, and F1 score.

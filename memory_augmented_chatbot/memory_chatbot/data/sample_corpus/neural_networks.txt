@@ -1,0 +1,11 @@
+Title: Neural Networks
+
+Neural Networks are computing systems inspired by the biological neural networks found in animal brains. A Neural Network consists of layers of interconnected nodes, called neurons, that process information using weighted connections.
+
+The Perceptron, invented by Frank Rosenblatt in 1958, is considered the earliest Neural Network model. Modern Neural Networks are trained using an algorithm called Backpropagation, which was popularized by Geoffrey Hinton, David Rumelhart, and Ronald Williams in 1986.
+
+Convolutional Neural Networks, commonly abbreviated as CNNs, are widely used for image recognition tasks. CNNs were pioneered by Yann LeCun through his work on LeNet. Recurrent Neural Networks, or RNNs, are designed for sequential data such as text and time series. Long Short-Term Memory networks, known as LSTMs, were introduced by Sepp Hochreiter and Jurgen Schmidhuber to address the vanishing gradient problem in RNNs.
+
+The Transformer architecture, introduced by Google researchers in the paper Attention Is All You Need, replaced RNNs in most Natural Language Processing tasks. Transformers form the foundation of Large Language Models such as GPT, developed by OpenAI, and BERT, developed by Google.
+
+Neural Networks require significant computational resources, often trained using GPUs manufactured by NVIDIA. NVIDIA's CUDA platform is widely used to accelerate Neural Network training.
