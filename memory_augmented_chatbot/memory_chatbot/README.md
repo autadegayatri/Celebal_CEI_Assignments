@@ -47,7 +47,7 @@ search) via config flags with no code changes elsewhere.
                └───────┬────────┘
                        │
                ┌───────▼────────┐
-               │ Generation     │  LLM (Claude API or offline mock)
+               │ Generation     │  LLM (Groq)
                │     Node       │
                └───────┬────────┘
                        │
