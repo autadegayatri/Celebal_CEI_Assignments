@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src import config
-from src.rag.embeddings import Embedder, get_embedder
+from memory_augmented_chatbot.memory_chatbot.src import config
+from memory_augmented_chatbot.memory_chatbot.src.rag.embeddings import Embedder, get_embedder
 
 
 def _tokenize(text: str) -> set[str]:
@@ -63,7 +63,7 @@ class EvalResult:
     answer: str
     route: str
     context_relevance: float
-    faithfulness: float
+    faithfulness: float | None
     answer_correctness: float | None
     latency_seconds: float
     reference_answer: str | None = None
@@ -78,10 +78,13 @@ class EvalReport:
             return {}
         n = len(self.results)
         correctness_scores = [r.answer_correctness for r in self.results if r.answer_correctness is not None]
+        faithfulness_scores = [r.faithfulness for r in self.results if r.faithfulness is not None]
         return {
             "num_cases": n,
             "avg_context_relevance": round(sum(r.context_relevance for r in self.results) / n, 4),
-            "avg_faithfulness": round(sum(r.faithfulness for r in self.results) / n, 4),
+            "avg_faithfulness": round(sum(faithfulness_scores) / len(faithfulness_scores), 4)
+            if faithfulness_scores
+            else None,
             "avg_answer_correctness": round(sum(correctness_scores) / len(correctness_scores), 4)
             if correctness_scores
             else None,
@@ -134,15 +137,20 @@ class Evaluator:
         answer = state.get("answer", "")
 
         relevance = self._context_relevance(case.query, context)
-        faithfulness = token_overlap_f1(answer, context) if context else 0.0
+        # "Faithfulness" (answer grounded in retrieved context) is only a
+        # meaningful metric for grounded routes -- the general route has no
+        # context by design, so scoring it 0.0 would misleadingly look like
+        # poor grounding rather than "intentionally open-domain."
+        route = state.get("route", "unknown")
+        faithfulness = token_overlap_f1(answer, context) if (context and route != "general") else None
         correctness = token_overlap_f1(answer, case.reference_answer) if case.reference_answer else None
 
         return EvalResult(
             query=case.query,
             answer=answer,
-            route=state.get("route", "unknown"),
+            route=route,
             context_relevance=round(relevance, 4),
-            faithfulness=round(faithfulness, 4),
+            faithfulness=round(faithfulness, 4) if faithfulness is not None else None,
             answer_correctness=round(correctness, 4) if correctness is not None else None,
             latency_seconds=round(latency, 4),
             reference_answer=case.reference_answer,

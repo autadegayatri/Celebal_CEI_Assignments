@@ -110,7 +110,7 @@ def load_local_corpus(corpus_dir: Path) -> list[ScrapedDocument]:
 
 if __name__ == "__main__":
     import sys
-    from src import config
+    from memory_augmented_chatbot.memory_chatbot.src import config
 
     if len(sys.argv) > 1:
         scraper = WebScraper()

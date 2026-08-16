@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.ingestion.chunker import Chunk
+from memory_augmented_chatbot.memory_chatbot.src.ingestion.chunker import Chunk
 
 
 @dataclass

@@ -1,7 +1,12 @@
 """
-Basic tests covering the ingestion, RAG, knowledge graph, memory, tools,
-and orchestration layers. Not exhaustive, but exercises the full pipeline
-end-to-end so a broken wiring change fails loudly.
+Tests covering ingestion, RAG, knowledge graph (Neo4j), long-term memory
+(PostgreSQL), and tools.
+
+Pure-logic tests (cleaning, chunking, embeddings, vector search, entity
+extraction, fact extraction, tools) always run. Tests that need a live
+PostgreSQL or Neo4j connection skip themselves (with a clear reason)
+rather than failing if those services aren't reachable in the current
+environment -- run `docker-compose up -d` first to exercise them for real.
 
 Run with:
     python -m pytest tests/ -v
@@ -10,23 +15,25 @@ Run with:
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import numpy as np
 import pytest
 
-from src.ingestion.chunker import chunk_document
-from src.ingestion.cleaner import clean_text
-from src.knowledge_graph.entity_extractor import extract_from_text
-from src.knowledge_graph.graph_store import NetworkXGraphStore
-from src.memory.memory_store import MemoryStore, extract_candidate_facts, get_memory_store
-from src.rag.embeddings import TfidfEmbedder
-from src.rag.vector_store import VectorStore
-from src.tools import tool_registry
+from memory_augmented_chatbot.memory_chatbot.src.ingestion.chunker import chunk_document
+from memory_augmented_chatbot.memory_chatbot.src.ingestion.cleaner import clean_text
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.entity_extractor import extract_from_text
+from memory_augmented_chatbot.memory_chatbot.src.memory.memory_store import extract_candidate_facts
+from memory_augmented_chatbot.memory_chatbot.src.rag.embeddings import TfidfEmbedder
+from memory_augmented_chatbot.memory_chatbot.src.rag.vector_store import VectorStore
+from memory_augmented_chatbot.memory_chatbot.src.tools import tool_registry
 
 
+# ---------------------------------------------------------------------------
+# Ingestion
+# ---------------------------------------------------------------------------
 def test_clean_text_strips_urls_and_whitespace():
     dirty = "Check this out:   https://example.com   \n\n\n extra   spaces"
     cleaned = clean_text(dirty)
@@ -43,6 +50,9 @@ def test_chunk_document_respects_min_length_and_overlap():
         assert c.doc_id == "doc1"
 
 
+# ---------------------------------------------------------------------------
+# RAG (embeddings + vector store)
+# ---------------------------------------------------------------------------
 def test_tfidf_embedder_roundtrip(tmp_path):
     texts = ["Machine learning is great", "Neural networks power deep learning", "The cat sat on the mat"]
     embedder = TfidfEmbedder()
@@ -59,7 +69,7 @@ def test_tfidf_embedder_roundtrip(tmp_path):
 
 
 def test_vector_store_search_returns_relevant_chunk():
-    from src.ingestion.chunker import Chunk
+    from memory_augmented_chatbot.memory_chatbot.src.ingestion.chunker import Chunk
 
     embedder = TfidfEmbedder()
     texts = ["Python is a programming language.", "Bananas are a type of fruit."]
@@ -78,6 +88,9 @@ def test_vector_store_search_returns_relevant_chunk():
     assert "Python" in results[0].chunk.text
 
 
+# ---------------------------------------------------------------------------
+# Knowledge graph -- entity/triple extraction (pure logic, no DB needed)
+# ---------------------------------------------------------------------------
 def test_entity_and_triple_extraction():
     text = "Python was developed by Guido van Rossum. Python is a subfield of programming languages."
     entities, triples = extract_from_text(text)
@@ -86,92 +99,119 @@ def test_entity_and_triple_extraction():
 
 
 def test_extract_query_entities_ignores_question_words():
-    from src.knowledge_graph.graph_query import extract_query_entities
+    from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_query import extract_query_entities
 
     entities = extract_query_entities("Who created Python?")
     assert entities == ["Python"]
 
 
-def test_graph_store_neighbors_and_search():
-    from src.knowledge_graph.entity_extractor import Triple
+# ---------------------------------------------------------------------------
+# Knowledge graph -- Neo4j (skips if no live instance is reachable)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def neo4j_store():
+    from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_store import Neo4jGraphStore
 
-    store = NetworkXGraphStore()
-    store.add_triple(Triple(subject="PyTorch", relation="developed by", obj="Meta", sentence="PyTorch developed by Meta."))
-
-    neighbors = store.neighbors("PyTorch")
-    assert len(neighbors) == 1
-    assert neighbors[0]["object"] == "Meta"
-
-    matches = store.search_entities("pytorch")
-    assert "PyTorch" in matches
+    try:
+        store = Neo4jGraphStore()
+        store.driver.verify_connectivity()
+    except Exception as exc:
+        pytest.skip(f"Neo4j not reachable ({exc}) -- run `docker-compose up -d neo4j` to test this.")
+    yield store
+    store.close()
 
 
-def test_memory_store_add_and_get_facts(tmp_path):
-    db_path = tmp_path / "test_memory.db"
-    store = MemoryStore(db_path=db_path)
-    store.add_fact("user1", "User likes Python", category="preference")
-    store.add_fact("user1", "User likes Python", category="preference")  # duplicate, should be ignored
+def test_graph_store_add_and_neighbors(neo4j_store):
+    from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.entity_extractor import Triple
 
-    facts = store.get_facts("user1")
+    # unique names per test run so repeated runs don't collide
+    tag = uuid.uuid4().hex[:8]
+    subj, obj = f"PyTorch-{tag}", f"Meta-{tag}"
+
+    neo4j_store.add_triple(Triple(subject=subj, relation="developed by", obj=obj, sentence=f"{subj} developed by {obj}."))
+
+    neighbors = neo4j_store.neighbors(subj)
+    assert any(n["object"] == obj and n["relation"] == "developed by" for n in neighbors)
+
+    matches = neo4j_store.search_entities(subj)
+    assert subj in matches
+
+
+def test_graph_store_stats(neo4j_store):
+    stats = neo4j_store.stats()
+    assert "num_entities" in stats
+    assert "num_relations" in stats
+
+
+# ---------------------------------------------------------------------------
+# Long-term memory -- PostgreSQL (skips if no live instance is reachable)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def memory_store():
+    from memory_augmented_chatbot.memory_chatbot.src.memory.memory_store import MemoryStore
+
+    try:
+        store = MemoryStore()
+    except Exception as exc:
+        pytest.skip(f"PostgreSQL not reachable ({exc}) -- run `docker-compose up -d postgres` to test this.")
+    yield store
+    store.close()
+
+
+def test_memory_store_add_and_get_facts(memory_store):
+    user_id = f"test-user-{uuid.uuid4().hex[:8]}"
+    memory_store.add_fact(user_id, "User likes Python", category="preference")
+    memory_store.add_fact(user_id, "User likes Python", category="preference")  # duplicate, should be ignored
+
+    facts = memory_store.get_facts(user_id)
     assert len(facts) == 1
     assert facts[0].fact == "User likes Python"
-    store.close()
+    memory_store.forget(user_id)
 
 
-def test_memory_store_turns_persist_and_round_trip(tmp_path):
-    """Long-term memory: conversation history survives across a fresh
-    connection to the same database file (i.e. a process restart)."""
-    db_path = tmp_path / "test_turns.db"
+def test_memory_store_turns_persist_across_connections(memory_store):
+    """Long-term memory: conversation history survives a fresh connection
+    to the same PostgreSQL database (i.e. a process restart)."""
+    from memory_augmented_chatbot.memory_chatbot.src.memory.memory_store import MemoryStore
 
-    store = MemoryStore(db_path=db_path)
-    store.add_turn("user1", "user", "Hello there")
-    store.add_turn("user1", "assistant", "Hi! How can I help?")
-    store.close()
+    user_id = f"test-user-{uuid.uuid4().hex[:8]}"
+    memory_store.add_turn(user_id, "user", "Hello there")
+    memory_store.add_turn(user_id, "assistant", "Hi! How can I help?")
 
-    # Re-open a brand new connection to the same file, simulating a restart.
-    store2 = MemoryStore(db_path=db_path)
-    turns = store2.get_recent_turns("user1")
+    # a brand-new connection, simulating a process restart
+    store2 = MemoryStore(dsn=memory_store.dsn)
+    turns = store2.get_recent_turns(user_id)
     assert len(turns) == 2
     assert turns[0].role == "user"
     assert turns[0].content == "Hello there"
     assert turns[1].role == "assistant"
+
+    store2.forget(user_id)
     store2.close()
 
 
-def test_memory_store_forget_clears_facts_and_turns(tmp_path):
-    db_path = tmp_path / "test_forget.db"
-    store = MemoryStore(db_path=db_path)
-    store.add_fact("user1", "User is a final-year IT student")
-    store.add_turn("user1", "user", "hi")
+def test_memory_store_forget_clears_facts_and_turns(memory_store):
+    user_id = f"test-user-{uuid.uuid4().hex[:8]}"
+    memory_store.add_fact(user_id, "User is a final-year IT student")
+    memory_store.add_turn(user_id, "user", "hi")
 
-    store.forget("user1")
+    memory_store.forget(user_id)
 
-    assert store.get_facts("user1") == []
-    assert store.get_recent_turns("user1") == []
-    store.close()
+    assert memory_store.get_facts(user_id) == []
+    assert memory_store.get_recent_turns(user_id) == []
 
 
-def test_get_memory_store_defaults_to_sqlite(tmp_path):
-    db_path = tmp_path / "test_factory.db"
-    store = get_memory_store(backend="sqlite", db_path=db_path)
-    assert isinstance(store, MemoryStore)
-    store.close()
-
-
-def test_get_memory_store_postgres_backend_is_selected_by_config():
-    """Selecting the postgres backend should try to build a
-    PostgresMemoryStore (and fail on the missing/unreachable connection
-    rather than silently falling back to sqlite), proving MEMORY_BACKEND
-    actually drives which database connection is used."""
-    with pytest.raises(Exception):
-        get_memory_store(backend="postgres")
-
-
+# ---------------------------------------------------------------------------
+# Memory -- fact extraction (pure logic, no DB needed)
+# ---------------------------------------------------------------------------
 def test_extract_candidate_facts():
     facts = extract_candidate_facts("Hi, I am a final year student and I like machine learning.")
     assert any("final year student" in f for f in facts)
 
 
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
 def test_calculator_tool():
     tool = tool_registry.get_tool("calculator")
     result = tool.func("What is 12 * (3 + 4)?")

@@ -1,39 +1,55 @@
 """
 LangGraph node implementations.
 
-Each node is a plain function `(state) -> partial_state_update`, matching
-the four node types called for in the problem statement's architecture:
+Each node is a plain function `(state) -> partial_state_update`. Together
+they implement the architecture from the problem statement (Memory, Model
+"router", RAG, Knowledge Graph, Tool nodes), plus a General node for
+open-domain questions the knowledge base doesn't cover:
 
-  - Memory node   -> pulls long-term facts + recent history for this user
-  - Router (Model) node -> decides RAG vs Knowledge Graph vs Tool
-  - RAG node      -> static knowledge retrieval (vector search)
-  - KG node       -> structured relationship lookup
-  - Tool node     -> real-time / dynamic API & tool calls
-  - Generation (Model) node -> composes the final answer via the LLM client
-  - Memory-write node -> persists any new durable facts from this turn
+  - Memory node      -> pulls long-term facts + recent history for this user
+  - Router node       -> decides RAG vs Knowledge Graph vs Tool vs General
+  - RAG node          -> static knowledge retrieval (vector search)
+  - KG node           -> structured relationship lookup (Neo4j)
+  - Tool node         -> real-time / dynamic API & tool calls
+  - General node      -> open question, not covered by KB/KG/tools --
+                          answered directly by the LLM's own knowledge
+  - Build-prompt node -> assembles the grounded/open prompt for generation
+  - Generation node   -> calls the LLM (Groq) to produce the final answer
+  - Memory-write node -> persists the turn + any durable facts detected
 """
 
 from __future__ import annotations
 
 import re
 
-from src import config
-from src.knowledge_graph.graph_query import extract_query_entities, query_graph_for_entity
-from src.knowledge_graph.graph_store import GraphStore
-from src.llm.client import LLMClient
-from src.memory.memory_store import MemoryStore, extract_candidate_facts
-from src.orchestration.state import ChatState
-from src.rag.retriever import Retriever
-from src.tools import tool_registry
+from memory_augmented_chatbot.memory_chatbot.src import config
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_query import extract_query_entities, query_graph_for_entity
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_store import Neo4jGraphStore
+from memory_augmented_chatbot.memory_chatbot.src.llm.client import LLMClient
+from memory_augmented_chatbot.memory_chatbot.src.memory.memory_store import MemoryStore, extract_candidate_facts
+from memory_augmented_chatbot.memory_chatbot.src.orchestration.state import ChatState
+from memory_augmented_chatbot.memory_chatbot.src.rag.retriever import Retriever
+from memory_augmented_chatbot.memory_chatbot.src.tools import tool_registry
 
-SYSTEM_PROMPT = (
-    "You are a helpful, memory-augmented AI assistant. You have access to "
-    "a static knowledge base (RAG), a knowledge graph of entities and "
-    "relationships, real-time tools, and long-term memory about the user. "
-    "Answer using only the CONTEXT provided. If the context doesn't contain "
-    "the answer, say so honestly instead of guessing. Be concise and direct. "
-    "If relevant memory facts about the user are present, personalize your "
+GROUNDED_SYSTEM_PROMPT = (
+    "You are a helpful, memory-augmented AI assistant. You have access to a "
+    "static knowledge base (RAG), a knowledge graph of entities and "
+    "relationships, and real-time tools. Prioritize the information in "
+    "CONTEXT when answering -- it comes from the assistant's own knowledge "
+    "base and is usually the most accurate source for this question. You "
+    "may also draw on your own general knowledge to explain, elaborate, or "
+    "fill small gaps, but don't contradict the provided context. Answer "
+    "naturally and conversationally, not as a list of copied facts. If "
+    "relevant memory facts about the user are present, personalize your "
     "answer to them."
+)
+
+GENERAL_SYSTEM_PROMPT = (
+    "You are a helpful, memory-augmented AI assistant. This question is "
+    "outside your knowledge base and knowledge graph, so answer it using "
+    "your own general knowledge, the same way a capable AI assistant "
+    "would. Be direct, accurate, and conversational. If relevant memory "
+    "facts about the user are present, personalize your answer to them."
 )
 
 # Keywords that suggest the query wants live/real-time/computed info rather
@@ -52,37 +68,36 @@ _KG_KEYWORDS = [
     "developed by", "founded by", "invented by", "who made",
 ]
 
-# Titles that commonly indicate a question about an entity/person relationship
-_KG_TITLES = [
-    "ceo",
-    "founder",
-    "co-founder",
-    "cofounder",
-    "president",
-    "chair",
-    "cto",
-    "chief",
-    "director",
-]
+_KG_TITLES = ["ceo", "founder", "co-founder", "cofounder", "president", "chair", "cto", "chief", "director"]
 
 
-def router_node(state: ChatState) -> dict:
-    """Decide which retrieval path(s) this query needs."""
+def router_node(state: ChatState, retriever: Retriever) -> dict:
+    """Decide which path best answers this query: a real-time Tool, the
+    Knowledge Graph, the static knowledge base (RAG), or -- if none of
+    those are a good fit -- General open-domain Q&A answered directly by
+    the LLM's own knowledge."""
     query_lower = state["query"].lower()
 
     for tool_name, keywords in _TOOL_KEYWORDS.items():
         if any(kw in query_lower for kw in keywords):
-            # avoid false-triggering calculator on ordinary "what is X" questions
             if tool_name == "calculator" and not re.search(r"\d", query_lower):
                 continue
             return {"route": "tool", "tool_name": tool_name}
 
     if any(kw in query_lower for kw in _KG_KEYWORDS):
         return {"route": "kg"}
-
-    # route person/role questions (e.g. "who is the CEO of OpenAI") to the KG
     if query_lower.startswith("who") and any(title in query_lower for title in _KG_TITLES):
         return {"route": "kg"}
+
+    # Neither a tool nor a KG-style relationship question -- check whether
+    # the knowledge base actually has relevant material before committing
+    # to RAG. A low best-match score means this is a general question the
+    # corpus doesn't cover, so it goes to the General node instead of
+    # forcing an answer out of irrelevant retrieved chunks.
+    results = retriever.retrieve(state["query"])
+    best_score = results[0].score if results else 0.0
+    if best_score < config.RAG_CONFIDENCE_THRESHOLD:
+        return {"route": "general"}
 
     return {"route": "rag"}
 
@@ -102,7 +117,7 @@ def rag_node(state: ChatState, retriever: Retriever) -> dict:
     return {"rag_context": context, "retrieved_chunks": results}
 
 
-def kg_node(state: ChatState, graph_store: GraphStore) -> dict:
+def kg_node(state: ChatState, graph_store: Neo4jGraphStore) -> dict:
     entities = extract_query_entities(state["query"])
     contexts = []
     for entity in entities[:3]:
@@ -125,8 +140,19 @@ def tool_node(state: ChatState) -> dict:
     return {"tool_output": output}
 
 
+def general_node(state: ChatState) -> dict:
+    """No specialized retrieval for this route -- the question is
+    open-domain and gets answered directly from the LLM's own knowledge in
+    the generation node. This node exists explicitly (rather than routing
+    straight to build_prompt) to keep the graph's four answer paths
+    symmetric and easy to reason about: RAG / KG / Tool / General."""
+    return {}
+
+
 def build_prompt_node(state: ChatState) -> dict:
-    """Assemble the final grounded prompt for the generation node."""
+    """Assemble the final prompt for the generation node. Grounded routes
+    (rag/kg/tool) get the retrieved context plus grounded instructions;
+    the general route gets an open system prompt and no forced context."""
     context_parts = []
     if state.get("memory_facts"):
         context_parts.append(f"USER MEMORY:\n{state['memory_facts']}")
@@ -141,7 +167,9 @@ def build_prompt_node(state: ChatState) -> dict:
 
     context = "\n\n".join(context_parts)
     final_prompt = f"CONTEXT:\n{context}\n\nUSER QUESTION:\n{state['query']}"
-    return {"system_prompt": SYSTEM_PROMPT, "final_prompt": final_prompt}
+
+    system_prompt = GENERAL_SYSTEM_PROMPT if state.get("route") == "general" else GROUNDED_SYSTEM_PROMPT
+    return {"system_prompt": system_prompt, "final_prompt": final_prompt}
 
 
 def generation_node(state: ChatState, llm_client: LLMClient) -> dict:

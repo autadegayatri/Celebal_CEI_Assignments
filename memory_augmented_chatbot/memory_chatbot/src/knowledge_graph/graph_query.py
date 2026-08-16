@@ -1,5 +1,5 @@
 """
-High-level query helpers over a GraphStore, used by the LangGraph KG node
+High-level query helpers over a Neo4jGraphStore, used by the LangGraph KG node
 to turn a natural-language query into a formatted context string.
 """
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from src.knowledge_graph.graph_store import GraphStore
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_store import Neo4jGraphStore
 
 
 def format_neighbors(neighbors: list[dict]) -> str:
@@ -19,7 +19,7 @@ def format_neighbors(neighbors: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def query_graph_for_entity(store: GraphStore, entity_query: str, max_hops: int = 2) -> str:
+def query_graph_for_entity(store: Neo4jGraphStore, entity_query: str, max_hops: int = 2) -> str:
     """
     Resolve an entity mention (possibly fuzzy/partial) to graph nodes and
     return a formatted string of the relationships found around it.
@@ -50,7 +50,7 @@ def query_graph_for_entity(store: GraphStore, entity_query: str, max_hops: int =
 
 def extract_query_entities(query: str) -> list[str]:
     """Pull the most relevant entity candidates out of a user query for KG lookup."""
-    from src.knowledge_graph.entity_extractor import extract_entities
+    from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.entity_extractor import extract_entities
 
     entities = extract_entities(query)
     if entities:

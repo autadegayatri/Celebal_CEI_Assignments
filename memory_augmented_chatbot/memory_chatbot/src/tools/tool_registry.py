@@ -16,7 +16,7 @@ import operator
 from dataclasses import dataclass
 from typing import Callable
 
-from src import config
+from memory_augmented_chatbot.memory_chatbot.src import config
 
 
 @dataclass

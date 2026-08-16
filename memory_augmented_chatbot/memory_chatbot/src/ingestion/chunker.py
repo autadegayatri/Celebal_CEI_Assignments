@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from src import config
+from memory_augmented_chatbot.memory_chatbot.src import config
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 

@@ -17,7 +17,7 @@ class ChatState(TypedDict, total=False):
     query: str
 
     # ---- routing ----
-    route: str              # "rag" | "kg" | "tool" | "memory_only"
+    route: str              # "rag" | "kg" | "tool" | "general"
     tool_name: str | None    # which tool to call, if route == "tool"
 
     # ---- retrieved context (populated by whichever node(s) run) ----

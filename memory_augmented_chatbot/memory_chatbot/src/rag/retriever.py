@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src import config
-from src.rag.embeddings import Embedder, get_embedder
-from src.rag.vector_store import SearchResult, VectorStore
+from memory_augmented_chatbot.memory_chatbot.src import config
+from memory_augmented_chatbot.memory_chatbot.src.rag.embeddings import Embedder, get_embedder
+from memory_augmented_chatbot.memory_chatbot.src.rag.vector_store import SearchResult, VectorStore
 
 
 class Retriever:

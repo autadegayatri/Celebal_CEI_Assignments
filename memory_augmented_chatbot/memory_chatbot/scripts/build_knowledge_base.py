@@ -1,60 +1,57 @@
 """
-End-to-end knowledge-base build script.
+End-to-end knowledge-base build pipeline.
 
-Runs the full Static Knowledge + Knowledge Graph pipeline described in the
-methodology:
-
-    1. Data pipeline      : scrape (or load local corpus) -> clean
-    2. Embedding & storage: chunk -> embed -> vector store
-    3. KG construction    : entity/relation extraction -> graph store
+    1. Data pipeline      : scrape URLs (data/source_urls.txt or --urls),
+                             or fall back to the bundled sample corpus -> clean
+    2. Embedding & storage: chunk -> embed -> vector store (artifacts/vector_store.pkl)
+    3. KG construction    : entity/relation extraction -> Neo4j
 
 Usage:
-    python -m scripts.build_knowledge_base                  # sample corpus
-    python -m scripts.build_knowledge_base --urls URL1 URL2  # live scrape
+    python -m scripts.build_knowledge_base                   # data/source_urls.txt, or sample corpus if empty
+    python -m scripts.build_knowledge_base --urls URL1 URL2  # explicit URLs
+    python -m scripts.build_knowledge_base --sample-only      # force the bundled sample corpus
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
-from src import config
-from src.ingestion.chunker import chunk_documents
-from src.ingestion.cleaner import clean_text
-from src.knowledge_graph.entity_extractor import extract_from_text
-from src.knowledge_graph.graph_store import NetworkXGraphStore
-from src.rag.embeddings import get_embedder
-from src.rag.vector_store import VectorStore
-from src.scraping.scraper import WebScraper, load_local_corpus
+from memory_augmented_chatbot.memory_chatbot.src import config
+from memory_augmented_chatbot.memory_chatbot.src.ingestion.chunker import chunk_documents
+from memory_augmented_chatbot.memory_chatbot.src.ingestion.cleaner import clean_text
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.entity_extractor import extract_from_text
+from memory_augmented_chatbot.memory_chatbot.src.knowledge_graph.graph_store import get_graph_store
+from memory_augmented_chatbot.memory_chatbot.src.rag.embeddings import get_embedder
+from memory_augmented_chatbot.memory_chatbot.src.rag.vector_store import VectorStore
+from memory_augmented_chatbot.memory_chatbot.src.scraping.scraper import WebScraper, load_local_corpus
 
 
-def load_default_urls(path: Path | str) -> list[str]:
-    path = Path(path)
+def _load_default_urls(path: Path) -> list[str]:
     if not path.exists():
         return []
-    urls: list[str] = []
+    urls = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        urls.append(line)
+        if line and not line.startswith("#"):
+            urls.append(line)
     return urls
 
 
-def build(urls: list[str] | None = None) -> dict:
+def build(urls: list[str] | None = None, sample_only: bool = False) -> dict:
     t0 = time.perf_counter()
 
     # -------------------------------------------------------------
     # 1. Data pipeline: scrape (or load local corpus) -> clean
     # -------------------------------------------------------------
-    if urls is None:
-        urls = load_default_urls(config.DEFAULT_SOURCE_URLS_PATH)
+    if sample_only:
+        urls = []
+    elif urls is None:
+        urls = _load_default_urls(config.DEFAULT_SOURCE_URLS_PATH)
 
     if urls:
-        scraper = WebScraper()
-        scraped = scraper.scrape_urls(urls)
+        scraped = WebScraper().scrape_urls(urls)
     else:
         scraped = load_local_corpus(config.SAMPLE_CORPUS_DIR)
 
@@ -85,9 +82,11 @@ def build(urls: list[str] | None = None) -> dict:
     embedder.save(config.VECTOR_STORE_PATH.parent / "embedder.pkl")
 
     # -------------------------------------------------------------
-    # 3. Knowledge graph construction: entities + relations -> graph store
+    # 3. Knowledge graph construction: entities + relations -> Neo4j
     # -------------------------------------------------------------
-    graph_store = NetworkXGraphStore()
+    graph_store = get_graph_store()
+    graph_store.clear()  # fresh build -- avoid stacking duplicate data across runs
+
     total_entities, total_triples = 0, 0
     for doc in documents:
         entities, triples = extract_from_text(doc["text"])
@@ -97,33 +96,34 @@ def build(urls: list[str] | None = None) -> dict:
             graph_store.add_triple(t)
         total_entities += len(entities)
         total_triples += len(triples)
-    graph_store.save(config.GRAPH_STORE_PATH)
+
+    graph_stats = graph_store.stats()
+    graph_store.close()
 
     elapsed = time.perf_counter() - t0
 
-    stats = {
+    return {
         "documents_processed": len(documents),
         "chunks_created": len(chunks),
         "vector_store_size": len(vector_store),
-        "graph_entities": graph_store.stats()["num_entities"],
-        "graph_relations": graph_store.stats()["num_relations"],
+        "graph_entities": graph_stats["num_entities"],
+        "graph_relations": graph_stats["num_relations"],
         "build_time_seconds": round(elapsed, 2),
     }
-    return stats
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build the RAG index and knowledge graph.")
-    parser.add_argument("--urls", nargs="*", default=None, help="URLs to scrape instead of the sample corpus.")
+    parser = argparse.ArgumentParser(description="Build the RAG index and Neo4j knowledge graph.")
+    parser.add_argument("--urls", nargs="*", default=None, help="URLs to scrape instead of data/source_urls.txt.")
+    parser.add_argument("--sample-only", action="store_true", help="Force the bundled sample corpus, ignore URLs.")
     args = parser.parse_args()
 
     print("Building knowledge base...")
-    stats = build(urls=args.urls)
+    stats = build(urls=args.urls, sample_only=args.sample_only)
     print("\nBuild complete:")
     for k, v in stats.items():
         print(f"  {k}: {v}")
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(config.BASE_DIR))
     main()

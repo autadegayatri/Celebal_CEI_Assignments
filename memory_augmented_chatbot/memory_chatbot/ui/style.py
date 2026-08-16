@@ -1,36 +1,9 @@
-"""
-Custom styling for the Memory-Augmented Chatbot Streamlit UI.
-.3
-Usage (in ui/app.py):
-
-    from ui.style import inject_custom_css, ROUTE_LABELS, route_badge_html, memory_card_html, stat_pills_html
-
-    st.set_page_config(page_title="Memory-Augmented Chatbot", page_icon="🧠", layout="wide")
-    inject_custom_css()
-
-Pair this with .streamlit/config.toml (base theme colors) -- both use the
-same palette so the native Streamlit chrome (buttons, inputs, sidebar) and
-the custom HTML/CSS elements here look like one coherent design, not two
-different apps stitched together.
-
-Palette:
-    Background   #0B1220  deep slate navy      -- calm, low-glare, easy on the eyes for long sessions
-    Surface      #131C2E  panel/card background
-    Border       #22304A  subtle dividers
-    Text         #E6EAF2  primary text (high contrast on navy)
-    Muted text   #93A0B8  secondary/caption text
-    Accent       #4FD1C5  teal -- primary brand accent (buttons, links, title)
-    RAG route    #4FD1C5  teal   -- "knowledge base" lookups
-    KG route     #A78BFA  violet -- "knowledge graph" lookups
-    Tool route   #F5A962  amber  -- "live tool" calls
-    Success      #34D399  green
-"""
 
 from __future__ import annotations
 
 import streamlit as st
 
-ROUTE_LABELS = {"rag": "📚 Knowledge Base", "kg": "🕸️ Knowledge Graph", "tool": "🛠️ Tool"}
+ROUTE_LABELS = {"rag": "📚 Knowledge Base", "kg": "🕸️ Knowledge Graph", "tool": "🛠️ Tool", "general": "💬 General"}
 
 CUSTOM_CSS = """
 <style>
@@ -48,6 +21,8 @@ CUSTOM_CSS = """
         --kg-soft: rgba(167, 139, 250, 0.16);
         --tool: #F5A962;
         --tool-soft: rgba(245, 169, 98, 0.16);
+        --general: #93A0B8;
+        --general-soft: rgba(147, 160, 184, 0.16);
     }
 
     html, body, [class*="css"] {
@@ -137,6 +112,7 @@ CUSTOM_CSS = """
     .route-rag  { background: var(--accent-soft); color: var(--accent); border-color: rgba(79, 209, 197, 0.35); }
     .route-kg   { background: var(--kg-soft);     color: var(--kg);     border-color: rgba(167, 139, 250, 0.35); }
     .route-tool { background: var(--tool-soft);   color: var(--tool);   border-color: rgba(245, 169, 98, 0.35); }
+    .route-general { background: var(--general-soft); color: var(--general); border-color: rgba(147, 160, 184, 0.35); }
 
     /* Buttons */
     div.stButton > button {
